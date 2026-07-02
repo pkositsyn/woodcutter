@@ -47,8 +47,42 @@ func (h *nodeHeap) Pop() any {
 // node bound cannot beat the incumbent.
 func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
 	rp := Problem{Objective: p.Objective, Constraints: append([]Constraint(nil), p.Constraints...)}
-
 	incumbent := Solution{Status: Infeasible, Objective: math.Inf(1)}
+
+	// Root cutting-plane loop (pure integer programs only): tighten the LP
+	// bound with Gomory cuts and seed an incumbent via a rounding heuristic.
+	if allIntegerVars(integer, len(p.Objective)) {
+		prev := math.Inf(-1)
+		for round := 0; round < maxCutRounds; round++ {
+			tab, st := solveTableau(rp)
+			if st != Optimal {
+				return Solution{Status: st}
+			}
+			sol := tab.solution(rp.Objective)
+			if mostFractional(sol.X, integer) == -1 {
+				sol.Status = Optimal
+				sol.Proven = true
+				sol.LowerBound = sol.Objective
+				return sol // integer LP optimum is the global optimum
+			}
+			if h, ok := roundUpHeuristic(p.Constraints, p.Objective, sol.X, integer); ok && h.Objective < incumbent.Objective {
+				incumbent = h
+			}
+			if !deadline.IsZero() && time.Now().After(deadline) {
+				break // out of time; stop cutting, fall through to best-effort B&B
+			}
+			if sol.Objective <= prev+cutStallEps {
+				break // bound stalled; stop cutting
+			}
+			prev = sol.Objective
+			cuts := gomoryCuts(tab, integer)
+			if len(cuts) == 0 {
+				break
+			}
+			rp.Constraints = append(rp.Constraints, cuts...)
+		}
+	}
+
 	nodes := 0
 	proven := true
 	lowerBound := math.Inf(-1)
@@ -103,6 +137,68 @@ func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
 		incumbent.LowerBound = lowerBound
 	}
 	return incumbent
+}
+
+const (
+	maxCutRounds = 15   // cap root cutting-plane rounds
+	cutStallEps  = 1e-6 // stop cutting when the LP bound stops improving
+)
+
+// feasiblePoint reports whether x satisfies every constraint and x >= 0.
+func feasiblePoint(cons []Constraint, x []float64) bool {
+	for _, c := range cons {
+		lhs := 0.0
+		for j := range c.Coeffs {
+			if j < len(x) {
+				lhs += c.Coeffs[j] * x[j]
+			}
+		}
+		switch c.Type {
+		case LessEqual:
+			if lhs > c.RHS+1e-6 {
+				return false
+			}
+		case GreaterEqual:
+			if lhs < c.RHS-1e-6 {
+				return false
+			}
+		case Equal:
+			if math.Abs(lhs-c.RHS) > 1e-6 {
+				return false
+			}
+		}
+	}
+	for _, v := range x {
+		if v < -1e-6 {
+			return false
+		}
+	}
+	return true
+}
+
+// roundUpHeuristic rounds integer variables of a fractional LP point up and
+// returns the resulting solution if it is feasible for cons. Rounding up keeps
+// covering (>=) demand satisfied; it may violate supply (<=) caps, in which
+// case the point is rejected (no repair).
+func roundUpHeuristic(cons []Constraint, obj, x []float64, integer []bool) (Solution, bool) {
+	sol := make([]float64, len(x))
+	for j := range x {
+		if j < len(integer) && integer[j] {
+			sol[j] = math.Ceil(x[j] - 1e-9)
+		} else {
+			sol[j] = x[j]
+		}
+	}
+	if !feasiblePoint(cons, sol) {
+		return Solution{}, false
+	}
+	o := 0.0
+	for j := range obj {
+		if j < len(sol) {
+			o += obj[j] * sol[j]
+		}
+	}
+	return Solution{Status: Optimal, Objective: o, X: sol}, true
 }
 
 // mostFractional returns the integer-constrained variable closest to 0.5, or -1

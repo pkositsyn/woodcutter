@@ -115,3 +115,46 @@ func TestMILPBackstopTerminates(t *testing.T) {
 		t.Fatal("SolveMILP did not terminate under a past deadline")
 	}
 }
+
+// roundUpHeuristic rounds integer vars up and accepts only feasible points.
+func TestRoundUpHeuristic(t *testing.T) {
+	cons := []Constraint{
+		{Coeffs: []float64{1, 1}, Type: GreaterEqual, RHS: 3},
+		{Coeffs: []float64{1, 0}, Type: LessEqual, RHS: 10},
+	}
+	obj := []float64{1, 1}
+	// x=(1.4, 1.6) rounds up to (2,2): satisfies both -> feasible, obj 4.
+	s, ok := roundUpHeuristic(cons, obj, []float64{1.4, 1.6}, []bool{true, true})
+	if !ok || !approx(s.Objective, 4) {
+		t.Fatalf("heuristic ok=%v obj=%v, want ok+obj 4", ok, s.Objective)
+	}
+	// Rounding up violates a tight <= cap -> rejected.
+	tight := []Constraint{{Coeffs: []float64{1, 0}, Type: LessEqual, RHS: 1}}
+	if _, ok := roundUpHeuristic(tight, obj, []float64{1.9, 0}, []bool{true, true}); ok {
+		t.Fatalf("heuristic must reject an infeasible round-up (ceil(1.9)=2 > cap 1)")
+	}
+}
+
+// Under a past deadline but with a heuristic incumbent available, SolveMILP
+// returns a feasible incumbent flagged Proven=false with LowerBound < Objective.
+func TestMILPBackstopGap(t *testing.T) {
+	// Covering LP with fractional root so the root heuristic seeds an incumbent
+	// before the (already-passed) deadline stops branching.
+	p := Problem{
+		Objective: []float64{1, 1},
+		Constraints: []Constraint{
+			{Coeffs: []float64{2, 3}, Type: GreaterEqual, RHS: 7},
+			{Coeffs: []float64{3, 2}, Type: GreaterEqual, RHS: 7},
+		},
+	}
+	s := SolveMILP(p, []bool{true, true}, time.Now().Add(-time.Second))
+	if s.Status != Optimal {
+		t.Fatalf("status=%v, want Optimal best-effort incumbent", s.Status)
+	}
+	if s.Proven {
+		t.Fatalf("Proven must be false under a past deadline")
+	}
+	if s.LowerBound > s.Objective+1e-9 {
+		t.Fatalf("LowerBound %v must be <= Objective %v", s.LowerBound, s.Objective)
+	}
+}
