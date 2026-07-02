@@ -116,6 +116,22 @@ func Solve(p Problem) Solution {
 		return Solution{Status: Infeasible}
 	}
 
+	// Drive out any artificials still basic at zero level (degenerate) so
+	// phase 2 cannot leave them sitting in the basis, where later pivots
+	// could otherwise push them away from zero and corrupt feasibility.
+	for r := 0; r < m; r++ {
+		if !artificial[basis[r]] {
+			continue
+		}
+		for j := 0; j < total; j++ {
+			if artificial[j] || rows[r][j] == 0 {
+				continue
+			}
+			pivot(rows, basis, r, j, total)
+			break
+		}
+	}
+
 	// Phase 2: minimize original cost; forbid artificials from re-entering.
 	for j := 0; j < total; j++ {
 		if artificial[j] {
@@ -208,4 +224,63 @@ func pivot(rows [][]float64, basis []int, pr, pc, total int) {
 		}
 	}
 	basis[pr] = pc
+}
+
+// SolveMILP solves the MILP by LP-relaxation branch & bound (DFS with bounding).
+// integer[j]==true forces x[j] to an integer. Minimization only.
+func SolveMILP(p Problem, integer []bool) Solution {
+	best := Solution{Status: Infeasible, Objective: math.Inf(1)}
+
+	var rec func(extra []Constraint)
+	rec = func(extra []Constraint) {
+		cons := make([]Constraint, 0, len(p.Constraints)+len(extra))
+		cons = append(cons, p.Constraints...)
+		cons = append(cons, extra...)
+		sol := Solve(Problem{Objective: p.Objective, Constraints: cons})
+		if sol.Status != Optimal {
+			return
+		}
+		if sol.Objective >= best.Objective-eps {
+			return // LP bound cannot beat incumbent
+		}
+		frac := -1
+		for j := range sol.X {
+			if j < len(integer) && integer[j] {
+				if d := sol.X[j] - math.Floor(sol.X[j]); d > 1e-6 && d < 1-1e-6 {
+					frac = j
+					break
+				}
+			}
+		}
+		if frac == -1 {
+			// integer-feasible and strictly better
+			sol.Status = Optimal
+			best = sol
+			return
+		}
+		v := sol.X[frac]
+		down := Constraint{Coeffs: unit(frac, len(p.Objective)), Type: LessEqual, RHS: math.Floor(v)}
+		up := Constraint{Coeffs: unit(frac, len(p.Objective)), Type: GreaterEqual, RHS: math.Ceil(v)}
+		rec(appendCons(extra, down))
+		rec(appendCons(extra, up))
+	}
+	rec(nil)
+
+	if math.IsInf(best.Objective, 1) {
+		return Solution{Status: Infeasible}
+	}
+	return best
+}
+
+func unit(idx, n int) []float64 {
+	v := make([]float64, n)
+	v[idx] = 1
+	return v
+}
+
+func appendCons(base []Constraint, c Constraint) []Constraint {
+	out := make([]Constraint, len(base)+1)
+	copy(out, base)
+	out[len(base)] = c
+	return out
 }
