@@ -119,16 +119,25 @@ func Solve(p Problem) Solution {
 	// Drive out any artificials still basic at zero level (degenerate) so
 	// phase 2 cannot leave them sitting in the basis, where later pivots
 	// could otherwise push them away from zero and corrupt feasibility.
+	// Pick the non-artificial column with the largest magnitude entry (best
+	// pivot conditioning) and skip near-zero entries so float noise cannot be
+	// mistaken for a valid pivot (which would divide the row by ~1e-15).
 	for r := 0; r < m; r++ {
 		if !artificial[basis[r]] {
 			continue
 		}
+		pc := -1
+		var bestMag float64
 		for j := 0; j < total; j++ {
-			if artificial[j] || rows[r][j] == 0 {
+			if artificial[j] {
 				continue
 			}
-			pivot(rows, basis, r, j, total)
-			break
+			if mag := math.Abs(rows[r][j]); mag > eps && mag > bestMag {
+				bestMag, pc = mag, j
+			}
+		}
+		if pc != -1 {
+			pivot(rows, basis, r, pc, total)
 		}
 	}
 

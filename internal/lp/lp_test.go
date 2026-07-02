@@ -72,3 +72,77 @@ func TestSolveInfeasible(t *testing.T) {
 		t.Fatalf("status = %v, want Infeasible", s.Status)
 	}
 }
+
+// assertFeasible checks that the returned X is actually feasible: non-negative
+// and satisfying every constraint within tolerance.
+func assertFeasible(t *testing.T, p Problem, s Solution) {
+	t.Helper()
+	for j, v := range s.X {
+		if v < -1e-6 {
+			t.Fatalf("x[%d]=%v is negative (infeasible)", j, v)
+		}
+	}
+	for i, c := range p.Constraints {
+		lhs := 0.0
+		for j := range c.Coeffs {
+			if j < len(s.X) {
+				lhs += c.Coeffs[j] * s.X[j]
+			}
+		}
+		switch c.Type {
+		case Equal:
+			if math.Abs(lhs-c.RHS) > 1e-6 {
+				t.Fatalf("Equal constraint %d violated: %v != %v", i, lhs, c.RHS)
+			}
+		case LessEqual:
+			if lhs > c.RHS+1e-6 {
+				t.Fatalf("LessEqual constraint %d violated: %v > %v", i, lhs, c.RHS)
+			}
+		case GreaterEqual:
+			if lhs < c.RHS-1e-6 {
+				t.Fatalf("GreaterEqual constraint %d violated: %v < %v", i, lhs, c.RHS)
+			}
+		}
+	}
+}
+
+// Regression: degenerate Equal rows (row 1 is 3x row 0) leave an artificial
+// basic at zero after phase 1. The phase-1 drive-out must pivot it out on a
+// well-conditioned column; an exact ==0 pivot check would instead pivot on
+// float noise, blow up the tableau, and return an infeasible X (with a
+// negative component) as Optimal.
+func TestSolveDegenerateArtificialsFeasible(t *testing.T) {
+	p := Problem{
+		Objective: []float64{4, 1, 4, 5},
+		Constraints: []Constraint{
+			{Coeffs: []float64{1, 1, 2, 3}, Type: Equal, RHS: 4},
+			{Coeffs: []float64{3, 3, 6, 9}, Type: Equal, RHS: 12},
+			{Coeffs: []float64{2, 3, 1, 1}, Type: Equal, RHS: 5},
+			{Coeffs: []float64{3, 1, 0, 2}, Type: LessEqual, RHS: 7},
+		},
+	}
+	s := Solve(p)
+	if s.Status != Optimal {
+		t.Fatalf("status = %v, want Optimal", s.Status)
+	}
+	assertFeasible(t, p, s)
+}
+
+// Second degenerate case: a scaled duplicate Equal row (row 1 = 3x row 0) plus
+// a GreaterEqual, again forcing a redundant artificial basic at zero. The old
+// ==0 pivot check returns an infeasible X=[-6 8 6] (Optimal) on this input.
+func TestSolveDegenerateScaledRowsFeasible(t *testing.T) {
+	p := Problem{
+		Objective: []float64{2, 1, 4},
+		Constraints: []Constraint{
+			{Coeffs: []float64{1, 0, 2}, Type: Equal, RHS: 6},
+			{Coeffs: []float64{3, 0, 6}, Type: Equal, RHS: 18},
+			{Coeffs: []float64{3, 2, 1}, Type: GreaterEqual, RHS: 4},
+		},
+	}
+	s := Solve(p)
+	if s.Status != Optimal {
+		t.Fatalf("status = %v, want Optimal", s.Status)
+	}
+	assertFeasible(t, p, s)
+}
