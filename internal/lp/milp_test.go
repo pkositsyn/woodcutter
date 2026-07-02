@@ -3,6 +3,7 @@ package lp
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 // minimize x+y s.t. x+y >= 3.5 ; integers -> optimum 4 (e.g. x=4,y=0 or 2,2).
@@ -13,7 +14,7 @@ func TestMILPRounds(t *testing.T) {
 			{Coeffs: []float64{1, 1}, Type: GreaterEqual, RHS: 3.5},
 		},
 	}
-	s := SolveMILP(p, []bool{true, true})
+	s := SolveMILP(p, []bool{true, true}, time.Time{})
 	if s.Status != Optimal {
 		t.Fatalf("status = %v", s.Status)
 	}
@@ -37,7 +38,7 @@ func TestMILPBruteAgree(t *testing.T) {
 			{Coeffs: []float64{1, 3}, Type: GreaterEqual, RHS: 4},
 		},
 	}
-	s := SolveMILP(p, []bool{true, true})
+	s := SolveMILP(p, []bool{true, true}, time.Time{})
 	// brute force over a,b in 0..6
 	best := math.Inf(1)
 	for a := 0; a <= 6; a++ {

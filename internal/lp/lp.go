@@ -2,7 +2,10 @@
 // programs (minimize c·x, x >= 0) plus dual-price extraction. No external deps.
 package lp
 
-import "math"
+import (
+	"math"
+	"time"
+)
 
 type ConstraintType int
 
@@ -243,13 +246,18 @@ const milpNodeLimit = 5_000_000
 
 // SolveMILP solves the MILP by LP-relaxation branch & bound (DFS with bounding).
 // integer[j]==true forces x[j] to an integer. Minimization only.
-func SolveMILP(p Problem, integer []bool) Solution {
+//
+// A non-zero deadline bounds wall-clock time: once passed, the search stops
+// and returns the best incumbent found so far, which may be suboptimal on
+// hard inputs. A zero deadline means no time limit (bounded only by the node
+// cap milpNodeLimit).
+func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
 	best := Solution{Status: Infeasible, Objective: math.Inf(1)}
 	nodes := 0
 
 	var rec func(extra []Constraint)
 	rec = func(extra []Constraint) {
-		if nodes >= milpNodeLimit {
+		if nodes >= milpNodeLimit || (!deadline.IsZero() && time.Now().After(deadline)) {
 			return
 		}
 		nodes++

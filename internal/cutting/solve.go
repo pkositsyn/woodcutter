@@ -4,12 +4,18 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/pkositsyn/woodcutter/internal/knapsack"
 	"github.com/pkositsyn/woodcutter/internal/lp"
 )
 
 const tolerance = 1e-6
+
+// defaultMILPTimeout bounds the wall-clock time of the integer solve when
+// Options.MILPTimeout is not set, guaranteeing prompt termination even on
+// pathological inputs.
+const defaultMILPTimeout = 30 * time.Second
 
 // Solve is a Go port of the reference min_material_cutting: Gilmore-Gomory
 // column generation over multiple stock lengths with limited supply, then an
@@ -150,7 +156,11 @@ func Solve(stock, requirements []Pair, opts Options) Plan {
 	for j := range integer {
 		integer[j] = true
 	}
-	sol := lp.SolveMILP(lp.Problem{Objective: objective(), Constraints: buildConstraints()}, integer)
+	timeout := opts.MILPTimeout
+	if timeout <= 0 {
+		timeout = defaultMILPTimeout
+	}
+	sol := lp.SolveMILP(lp.Problem{Objective: objective(), Constraints: buildConstraints()}, integer, time.Now().Add(timeout))
 	if sol.Status != lp.Optimal {
 		return Plan{Feasible: false, TotalMaterial: -1, Dropped: dropped}
 	}

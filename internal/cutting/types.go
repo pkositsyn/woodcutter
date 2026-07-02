@@ -1,5 +1,7 @@
 package cutting
 
+import "time"
+
 // Pair is a (length, count) tuple used for both stock and requirements.
 type Pair struct {
 	Length int
@@ -40,4 +42,8 @@ type Plan struct {
 // Options configures the solver.
 type Options struct {
 	Padding int
+
+	// MILPTimeout is the max wall-clock time allowed for the integer solve;
+	// 0 means use the default.
+	MILPTimeout time.Duration
 }
