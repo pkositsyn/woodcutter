@@ -83,6 +83,12 @@ func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
 		}
 	}
 
+	if allIntegerVars(integer, len(p.Objective)) {
+		if d, ok := diveHeuristic(rp, integer); ok && d.Objective < incumbent.Objective {
+			incumbent = d
+		}
+	}
+
 	nodes := 0
 	proven := true
 	lowerBound := math.Inf(-1)
@@ -143,6 +149,34 @@ const (
 	maxCutRounds = 15   // cap root cutting-plane rounds
 	cutStallEps  = 1e-6 // stop cutting when the LP bound stops improving
 )
+
+// diveHeuristic performs a rounding dive: repeatedly solve the LP relaxation and
+// pin the most-fractional integer variable up to its ceiling until the LP is
+// integer-feasible or becomes infeasible. Returns a feasible incumbent (usually
+// far stronger than a single round-up) or ok=false if the dive hits infeasibility.
+func diveHeuristic(rp Problem, integer []bool) (Solution, bool) {
+	var extra []Constraint
+	for i := 0; i < 500; i++ {
+		cons := make([]Constraint, 0, len(rp.Constraints)+len(extra))
+		cons = append(cons, rp.Constraints...)
+		cons = append(cons, extra...)
+		sol := Solve(Problem{Objective: rp.Objective, Constraints: cons})
+		if sol.Status != Optimal {
+			return Solution{}, false
+		}
+		frac := mostFractional(sol.X, integer)
+		if frac == -1 {
+			sol.Status = Optimal
+			return sol, true
+		}
+		extra = append(extra, Constraint{
+			Coeffs: unit(frac, len(rp.Objective)),
+			Type:   GreaterEqual,
+			RHS:    math.Ceil(sol.X[frac]),
+		})
+	}
+	return Solution{}, false
+}
 
 // feasiblePoint reports whether x satisfies every constraint and x >= 0.
 func feasiblePoint(cons []Constraint, x []float64) bool {

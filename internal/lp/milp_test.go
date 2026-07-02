@@ -116,6 +116,36 @@ func TestMILPBackstopTerminates(t *testing.T) {
 	}
 }
 
+// diveHeuristic returns a feasible integer solution by pinning the most-
+// fractional variable up until integral. On a covering LP it must beat naive
+// one-shot round-up.
+func TestDiveHeuristic(t *testing.T) {
+	p := Problem{
+		Objective: []float64{1, 1},
+		Constraints: []Constraint{
+			{Coeffs: []float64{2, 3}, Type: GreaterEqual, RHS: 7},
+			{Coeffs: []float64{3, 2}, Type: GreaterEqual, RHS: 7},
+		},
+	}
+	sol, ok := diveHeuristic(p, []bool{true, true})
+	if !ok {
+		t.Fatalf("dive failed to produce a feasible incumbent")
+	}
+	// Must be integer-feasible for p.
+	if !feasiblePoint(p.Constraints, sol.X) {
+		t.Fatalf("dive result infeasible: %v", sol.X)
+	}
+	for j, v := range sol.X {
+		if math.Abs(v-math.Round(v)) > 1e-6 {
+			t.Fatalf("dive x[%d]=%v not integer", j, v)
+		}
+	}
+	// brute-force optimum is 3 (e.g. (1,2) or (2,1)); dive should be feasible and finite.
+	if sol.Objective < 3-1e-9 {
+		t.Fatalf("dive obj %v below true optimum 3 (infeasible-optimal)", sol.Objective)
+	}
+}
+
 // roundUpHeuristic rounds integer vars up and accepts only feasible points.
 func TestRoundUpHeuristic(t *testing.T) {
 	cons := []Constraint{

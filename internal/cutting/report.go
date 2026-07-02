@@ -19,6 +19,14 @@ func WriteReport(w io.Writer, plan Plan, requirements []Pair, opts Options) {
 		fmt.Fprintf(w, "Пропущено (длиннее максимальной доски): %d мм × %d\n", d.Length, d.Count)
 	}
 
+	if !plan.Proven {
+		gap := 0.0
+		if plan.TotalMaterial > 0 {
+			gap = float64(plan.TotalMaterial-plan.LowerBound) / float64(plan.TotalMaterial) * 100
+		}
+		fmt.Fprintf(w, "⚠ Оптимальность не доказана (лимит времени/узлов); верхняя оценка отклонения от оптимума: %.2f%%\n", gap)
+	}
+
 	boardsByStock := map[int]int{}
 	produced := map[int]int{}
 	for _, b := range plan.Boards {

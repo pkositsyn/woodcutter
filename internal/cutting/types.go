@@ -37,6 +37,13 @@ type Plan struct {
 	Feasible      bool
 	Boards        []Board
 	Dropped       []Pair // requirements longer than the longest stock board
+
+	// Proven is true when the integer optimum was proven within the budget.
+	// False means a backstop returned a best-effort incumbent.
+	Proven bool
+	// LowerBound is a proven lower bound on TotalMaterial. When Proven it equals
+	// TotalMaterial; otherwise gap = (TotalMaterial - LowerBound) / TotalMaterial.
+	LowerBound int
 }
 
 // Options configures the solver.

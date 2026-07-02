@@ -26,6 +26,30 @@ func TestWriteReportSmoke(t *testing.T) {
 	}
 }
 
+func TestWriteReportUnproven(t *testing.T) {
+	plan := Plan{
+		Feasible: true, TotalMaterial: 10000, LowerBound: 9800, Proven: false,
+		Boards: []Board{{StockLength: 10000, Pieces: []Piece{{Length: 10000, Start: 0, End: 10000, Kind: PieceCut}}}},
+	}
+	var sb strings.Builder
+	WriteReport(&sb, plan, []Pair{{10000, 1}}, Options{Padding: 5})
+	if !strings.Contains(sb.String(), "не доказана") {
+		t.Fatalf("expected unproven warning, got:\n%s", sb.String())
+	}
+}
+
+func TestWriteReportProvenNoWarning(t *testing.T) {
+	plan := Plan{
+		Feasible: true, TotalMaterial: 10000, LowerBound: 10000, Proven: true,
+		Boards: []Board{{StockLength: 10000, Pieces: []Piece{{Length: 10000, Start: 0, End: 10000, Kind: PieceCut}}}},
+	}
+	var sb strings.Builder
+	WriteReport(&sb, plan, []Pair{{10000, 1}}, Options{Padding: 5})
+	if strings.Contains(sb.String(), "не доказана") {
+		t.Fatalf("proven plan must not print warning:\n%s", sb.String())
+	}
+}
+
 func TestWriteReportInfeasible(t *testing.T) {
 	var sb strings.Builder
 	WriteReport(&sb, Plan{Feasible: false, TotalMaterial: -1}, nil, Options{Padding: 5})
