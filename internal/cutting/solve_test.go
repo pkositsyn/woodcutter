@@ -46,6 +46,3 @@ func TestSolveEmptyStock(t *testing.T) {
 		t.Fatalf("empty stock: feasible=%v total=%d", plan.Feasible, plan.TotalMaterial)
 	}
 }
-
-// TEMP stub — remove in Task 7 when validate_test.go lands.
-func assertPlanValid(t *testing.T, plan Plan, stock, reqs []Pair, padding int) {}
