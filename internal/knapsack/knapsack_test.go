@@ -1,80 +1,54 @@
 package knapsack
 
 import (
+	"encoding/json"
 	"math"
-	"math/rand"
+	"os"
 	"testing"
 )
 
-// brute enumerates every count combination within limits and returns the best
-// value whose exact total weight is <= capacity (mirrors the reference DP's
-// exact-weight semantics is NOT required here: brute is a looser oracle used
-// only to sanity-check that Solve never exceeds capacity and never beats the
-// true optimum). We therefore only assert Solve's value <= brute optimum and
-// that the returned vector is self-consistent.
-func bruteBestValue(values []float64, weights, counts []int, capacity int) float64 {
-	n := len(values)
-	best := 0.0
-	var rec func(i, w int, v float64)
-	rec = func(i, w int, v float64) {
-		if i == n {
-			if v > best {
-				best = v
-			}
-			return
+// kCase mirrors one entry in testdata/cases.json, whose expected value/vec were
+// produced by running the actual Python reference solve_bounded_knapsack_optimized.
+type kCase struct {
+	Values   []float64 `json:"values"`
+	Weights  []int     `json:"weights"`
+	Counts   []int     `json:"counts"`
+	Capacity int       `json:"capacity"`
+	Value    float64   `json:"value"`
+	Vec      []int     `json:"vec"`
+}
+
+func TestSolveMatchesPythonReference(t *testing.T) {
+	data, err := os.ReadFile("testdata/cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []kCase
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("no cases in testdata/cases.json")
+	}
+	for idx, c := range cases {
+		val, vec := Solve(c.Values, c.Weights, c.Counts, c.Capacity)
+		if math.Abs(val-c.Value) > 1e-9 {
+			t.Fatalf("case %d: value %v != python %v (in %+v)", idx, val, c.Value, c)
 		}
-		for c := 0; c <= counts[i]; c++ {
-			nw := w + c*weights[i]
-			if nw > capacity {
-				break
+		if len(vec) != len(c.Vec) {
+			t.Fatalf("case %d: vec len %d != %d (%v vs %v)", idx, len(vec), len(c.Vec), vec, c.Vec)
+		}
+		for i := range vec {
+			if vec[i] != c.Vec[i] {
+				t.Fatalf("case %d: vec %v != python %v", idx, vec, c.Vec)
 			}
-			rec(i+1, nw, v+float64(c)*values[i])
 		}
 	}
-	rec(0, 0, 0)
-	return best
 }
 
 func TestSolveExactSmall(t *testing.T) {
-	// One item type, weight 3, value 10, up to 3 copies, capacity 10.
-	// Exact-weight DP: best exact weight <= 10 is 9 (three copies), value 30.
 	val, vec := Solve([]float64{10}, []int{3}, []int{3}, 10)
-	if val != 30 {
-		t.Fatalf("value = %v, want 30", val)
-	}
-	if vec[0] != 3 {
-		t.Fatalf("vec = %v, want [3]", vec)
-	}
-}
-
-func TestSolveVectorConsistent(t *testing.T) {
-	rng := rand.New(rand.NewSource(42))
-	for iter := 0; iter < 200; iter++ {
-		n := 1 + rng.Intn(4)
-		values := make([]float64, n)
-		weights := make([]int, n)
-		counts := make([]int, n)
-		for i := 0; i < n; i++ {
-			values[i] = float64(1 + rng.Intn(20))
-			weights[i] = 1 + rng.Intn(6)
-			counts[i] = 1 + rng.Intn(4)
-		}
-		capacity := 1 + rng.Intn(25)
-		val, vec := Solve(values, weights, counts, capacity)
-		// Reconstructed value matches vec dotted with values.
-		var got, wsum float64
-		for i := 0; i < n; i++ {
-			got += float64(vec[i]) * values[i]
-			wsum += float64(vec[i] * weights[i])
-		}
-		if math.Abs(got-val) > 1e-9 {
-			t.Fatalf("value %v != reconstructed %v (vec %v)", val, got, vec)
-		}
-		if int(wsum) > capacity {
-			t.Fatalf("weight %v exceeds capacity %d (vec %v)", wsum, capacity, vec)
-		}
-		if val > bruteBestValue(values, weights, counts, capacity)+1e-9 {
-			t.Fatalf("value %v beats brute optimum", val)
-		}
+	if val != 30 || vec[0] != 3 {
+		t.Fatalf("got (%v,%v), want (30,[3])", val, vec)
 	}
 }
