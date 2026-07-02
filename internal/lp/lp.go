@@ -41,7 +41,7 @@ type Solution struct {
 const eps = 1e-9
 
 // Solve minimizes p.Objective·x subject to the constraints with x >= 0.
-// Requires RHS >= 0 for correct dual signs (all cutting RHS are non-negative).
+// Requires RHS >= 0 for correct behavior (all cutting-stock RHS are non-negative).
 func Solve(p Problem) Solution {
 	m := len(p.Constraints)
 	n := len(p.Objective)
@@ -70,26 +70,13 @@ func Solve(p Problem) Solution {
 	col := n
 	for i, c := range p.Constraints {
 		row := make([]float64, total+1)
-		rhs := c.RHS
-		sign := 1.0
-		if rhs < 0 {
-			sign, rhs = -1.0, -rhs
-		}
 		for j := 0; j < n; j++ {
 			if j < len(c.Coeffs) {
-				row[j] = sign * c.Coeffs[j]
+				row[j] = c.Coeffs[j]
 			}
 		}
-		row[total] = rhs
-		ctype := c.Type
-		if sign < 0 {
-			if ctype == LessEqual {
-				ctype = GreaterEqual
-			} else if ctype == GreaterEqual {
-				ctype = LessEqual
-			}
-		}
-		switch ctype {
+		row[total] = c.RHS
+		switch c.Type {
 		case LessEqual:
 			row[col] = 1
 			logical[i], basis[i] = col, col
