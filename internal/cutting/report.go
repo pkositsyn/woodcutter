@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 )
 
 // WriteReport prints a clean cutting report: per-board layout, boards by stock
@@ -42,7 +43,7 @@ func WriteReport(w io.Writer, plan Plan, requirements []Pair, opts Options) {
 				waste += p.Length
 			}
 		}
-		fmt.Fprintf(w, "  Куски: %s\n", joinComma(cuts))
+		fmt.Fprintf(w, "  Куски: %s\n", strings.Join(cuts, ", "))
 		fmt.Fprintf(w, "  Отходы: %d мм\n", waste)
 	}
 
@@ -64,15 +65,4 @@ func WriteReport(w io.Writer, plan Plan, requirements []Pair, opts Options) {
 		}
 		fmt.Fprintf(w, "  [%s] требуется %d × %d мм, произведено %d\n", status, r.Count, r.Length, produced[r.Length])
 	}
-}
-
-func joinComma(parts []string) string {
-	out := ""
-	for i, p := range parts {
-		if i > 0 {
-			out += ", "
-		}
-		out += p
-	}
-	return out
 }
