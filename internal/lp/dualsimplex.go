@@ -225,6 +225,81 @@ func (s *bvSolver) solve() Status {
 	return Unbounded // unreachable for this problem class
 }
 
+// setLower tightens (or changes) the lower bound of column j, then re-optimizes
+// from the current basis via the dual-simplex loop. The basis stays
+// dual-feasible across a bound change (reduced costs depend only on the basis
+// and costs, not on bounds), so resuming the dual simplex is valid.
+func (s *bvSolver) setLower(j int, lo float64) Status {
+	s.lo[j] = lo
+	// A nonbasic variable sitting at its lower bound moves with that bound.
+	if !s.inBasis[j] && !s.atUpper[j] {
+		// value tracks lo[j] via nonbasicValue; nothing else to fix here.
+	}
+	s.recomputeBasics()
+	return s.solve()
+}
+
+// setUpper tightens (or changes) the upper bound of column j, then re-optimizes
+// from the current basis via the dual-simplex loop. See setLower for why the
+// warm resume is valid.
+func (s *bvSolver) setUpper(j int, hi float64) Status {
+	s.hi[j] = hi
+	if !s.inBasis[j] && s.atUpper[j] {
+		// value tracks hi[j] via nonbasicValue; nothing else to fix here.
+	}
+	s.recomputeBasics()
+	return s.solve()
+}
+
+// bvState is the compact resumable state of a bvSolver: everything the dual
+// simplex mutates. snapshot copies it; restore assigns it back. Used by the DFS
+// branch-and-cut driver to backtrack after exploring a branch.
+type bvState struct {
+	cost    []float64
+	lo, hi  []float64
+	tab     [][]float64
+	binvb   []float64
+	xB      []float64
+	basis   []int
+	inBasis []bool
+	atUpper []bool
+}
+
+// snapshot deep-copies the solver's mutable state.
+func (s *bvSolver) snapshot() bvState {
+	tab := make([][]float64, s.m)
+	for i, row := range s.tab {
+		tab[i] = append([]float64(nil), row...)
+	}
+	return bvState{
+		cost:    append([]float64(nil), s.cost...),
+		lo:      append([]float64(nil), s.lo...),
+		hi:      append([]float64(nil), s.hi...),
+		tab:     tab,
+		binvb:   append([]float64(nil), s.binvb...),
+		xB:      append([]float64(nil), s.xB...),
+		basis:   append([]int(nil), s.basis...),
+		inBasis: append([]bool(nil), s.inBasis...),
+		atUpper: append([]bool(nil), s.atUpper...),
+	}
+}
+
+// restore assigns a previously-taken snapshot back into the solver. The stored
+// slices are re-copied so a snapshot may be restored more than once.
+func (s *bvSolver) restore(st bvState) {
+	copy(s.cost, st.cost)
+	copy(s.lo, st.lo)
+	copy(s.hi, st.hi)
+	for i := range s.tab {
+		copy(s.tab[i], st.tab[i])
+	}
+	copy(s.binvb, st.binvb)
+	copy(s.xB, st.xB)
+	copy(s.basis, st.basis)
+	copy(s.inBasis, st.inBasis)
+	copy(s.atUpper, st.atUpper)
+}
+
 // pivotBV row-reduces the tableau (and binvb) so column pc becomes a unit
 // vector on row pr.
 func (s *bvSolver) pivotBV(pr, pc int) {
