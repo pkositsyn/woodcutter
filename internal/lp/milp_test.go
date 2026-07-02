@@ -55,3 +55,63 @@ func TestMILPBruteAgree(t *testing.T) {
 		t.Fatalf("milp obj %v (status %v), brute %v", s.Objective, s.Status, best)
 	}
 }
+
+// Best-bound must PROVE optimality (Proven=true) with no deadline.
+func TestMILPProvenOptimal(t *testing.T) {
+	p := Problem{
+		Objective: []float64{5, 4},
+		Constraints: []Constraint{
+			{Coeffs: []float64{2, 1}, Type: GreaterEqual, RHS: 3},
+			{Coeffs: []float64{1, 3}, Type: GreaterEqual, RHS: 4},
+		},
+	}
+	s := SolveMILP(p, []bool{true, true}, time.Time{})
+	if s.Status != Optimal || !s.Proven {
+		t.Fatalf("status=%v proven=%v, want Optimal+proven", s.Status, s.Proven)
+	}
+	if !approx(s.LowerBound, s.Objective) {
+		t.Fatalf("proven LowerBound=%v must equal Objective=%v", s.LowerBound, s.Objective)
+	}
+}
+
+// Larger covering ILP vs brute force, proven.
+func TestMILPBruteAgreeLarger(t *testing.T) {
+	p := Problem{
+		Objective: []float64{7, 5, 9},
+		Constraints: []Constraint{
+			{Coeffs: []float64{3, 2, 4}, Type: GreaterEqual, RHS: 9},
+			{Coeffs: []float64{1, 4, 2}, Type: GreaterEqual, RHS: 8},
+		},
+	}
+	s := SolveMILP(p, []bool{true, true, true}, time.Time{})
+	best := math.Inf(1)
+	for a := 0; a <= 5; a++ {
+		for b := 0; b <= 5; b++ {
+			for c := 0; c <= 5; c++ {
+				if 3*a+2*b+4*c >= 9 && a+4*b+2*c >= 8 {
+					if v := float64(7*a + 5*b + 9*c); v < best {
+						best = v
+					}
+				}
+			}
+		}
+	}
+	if s.Status != Optimal || !approx(s.Objective, best) {
+		t.Fatalf("milp obj %v (status %v), brute %v", s.Objective, s.Status, best)
+	}
+}
+
+// A past deadline must terminate promptly (no hang), not spin.
+func TestMILPBackstopTerminates(t *testing.T) {
+	p := Problem{
+		Objective:   []float64{1, 1},
+		Constraints: []Constraint{{Coeffs: []float64{1, 1}, Type: GreaterEqual, RHS: 3.5}},
+	}
+	done := make(chan Solution, 1)
+	go func() { done <- SolveMILP(p, []bool{true, true}, time.Now().Add(-time.Second)) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SolveMILP did not terminate under a past deadline")
+	}
+}

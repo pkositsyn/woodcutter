@@ -4,7 +4,6 @@ package lp
 
 import (
 	"math"
-	"time"
 )
 
 type ConstraintType int
@@ -294,93 +293,4 @@ func pivot(rows [][]float64, basis []int, pr, pc, total int) {
 		}
 	}
 	basis[pr] = pc
-}
-
-// milpNodeLimit caps the number of branch-and-bound nodes explored so that
-// pathological inputs (e.g. many requirement types) can never hang. Hitting
-// the cap yields a best-effort (possibly suboptimal) incumbent, mirroring how
-// the Python reference solver (CBC) is itself run under a time limit.
-const milpNodeLimit = 5_000_000
-
-// SolveMILP solves the MILP by LP-relaxation branch & bound (DFS with bounding).
-// integer[j]==true forces x[j] to an integer. Minimization only.
-//
-// A non-zero deadline bounds wall-clock time: once passed, the search stops
-// and returns the best incumbent found so far, which may be suboptimal on
-// hard inputs. A zero deadline means no time limit (bounded only by the node
-// cap milpNodeLimit).
-func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
-	best := Solution{Status: Infeasible, Objective: math.Inf(1)}
-	nodes := 0
-
-	var rec func(extra []Constraint)
-	rec = func(extra []Constraint) {
-		if nodes >= milpNodeLimit || (!deadline.IsZero() && time.Now().After(deadline)) {
-			return
-		}
-		nodes++
-		cons := make([]Constraint, 0, len(p.Constraints)+len(extra))
-		cons = append(cons, p.Constraints...)
-		cons = append(cons, extra...)
-		sol := Solve(Problem{Objective: p.Objective, Constraints: cons})
-		if sol.Status != Optimal {
-			return
-		}
-		// The cutting-stock objective (sum of integer stock lengths times
-		// integer counts) is always integer-valued in this project, so the
-		// best integer objective reachable from this node is at least
-		// ceil(sol.Objective). If that cannot beat the incumbent, prune.
-		// This bound is only valid because the objective is guaranteed
-		// integer; SolveMILP must not be reused where that does not hold.
-		if math.Ceil(sol.Objective-1e-9) >= best.Objective-eps {
-			return // integer LP bound cannot beat incumbent
-		}
-		frac := -1
-		bestDist := math.Inf(1)
-		for j := range sol.X {
-			if j < len(integer) && integer[j] {
-				if d := sol.X[j] - math.Floor(sol.X[j]); d > 1e-6 && d < 1-1e-6 {
-					// Most-fractional branching: pick the variable closest
-					// to 0.5 to find a strong incumbent quickly.
-					dist := math.Abs(d - 0.5)
-					if dist < bestDist {
-						bestDist, frac = dist, j
-					}
-				}
-			}
-		}
-		if frac == -1 {
-			// integer-feasible and strictly better
-			sol.Status = Optimal
-			best = sol
-			return
-		}
-		v := sol.X[frac]
-		down := Constraint{Coeffs: unit(frac, len(p.Objective)), Type: LessEqual, RHS: math.Floor(v)}
-		up := Constraint{Coeffs: unit(frac, len(p.Objective)), Type: GreaterEqual, RHS: math.Ceil(v)}
-		// Explore ceil first: for covering-style problems rounding up tends
-		// to reach feasibility sooner, producing an early strong incumbent
-		// that prunes the rest of the tree aggressively.
-		rec(appendCons(extra, up))
-		rec(appendCons(extra, down))
-	}
-	rec(nil)
-
-	if math.IsInf(best.Objective, 1) {
-		return Solution{Status: Infeasible}
-	}
-	return best
-}
-
-func unit(idx, n int) []float64 {
-	v := make([]float64, n)
-	v[idx] = 1
-	return v
-}
-
-func appendCons(base []Constraint, c Constraint) []Constraint {
-	out := make([]Constraint, len(base)+1)
-	copy(out, base)
-	out[len(base)] = c
-	return out
 }
