@@ -49,6 +49,20 @@ func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
 	rp := Problem{Objective: p.Objective, Constraints: append([]Constraint(nil), p.Constraints...)}
 	incumbent := Solution{Status: Infeasible, Objective: math.Inf(1)}
 
+	// Rounding dive first, on the un-cut problem: the LPs are small (no cut rows)
+	// and it is deadline-bounded, so a strong incumbent is secured before the cut
+	// loop or B&B can consume the wall-clock budget.
+	if allIntegerVars(integer, len(p.Objective)) {
+		if d, ok := diveHeuristic(p, integer, deadline); ok && d.Objective < incumbent.Objective {
+			incumbent = d
+		}
+	}
+
+	// rootLB is a valid global lower bound (an LP relaxation objective; Gomory
+	// cuts preserve every integer-feasible point). It gives an honest gap when a
+	// backstop stops the search before the node frontier produces a bound.
+	rootLB := math.Inf(-1)
+
 	// Root cutting-plane loop (pure integer programs only): tighten the LP
 	// bound with Gomory cuts and seed an incumbent via a rounding heuristic.
 	if allIntegerVars(integer, len(p.Objective)) {
@@ -59,6 +73,7 @@ func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
 				return Solution{Status: st}
 			}
 			sol := tab.solution(rp.Objective)
+			rootLB = math.Ceil(sol.Objective - 1e-9)
 			if mostFractional(sol.X, integer) == -1 {
 				sol.Status = Optimal
 				sol.Proven = true
@@ -83,9 +98,11 @@ func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
 		}
 	}
 
-	if allIntegerVars(integer, len(p.Objective)) {
-		if d, ok := diveHeuristic(rp, integer); ok && d.Objective < incumbent.Objective {
-			incumbent = d
+	// Problems that skipped the cut loop (not pure-integer) still need a valid
+	// root bound for the honest-gap contract.
+	if math.IsInf(rootLB, -1) {
+		if rs := Solve(rp); rs.Status == Optimal {
+			rootLB = math.Ceil(rs.Objective - 1e-9)
 		}
 	}
 
@@ -134,11 +151,22 @@ func SolveMILP(p Problem, integer []bool, deadline time.Time) Solution {
 	if math.IsInf(incumbent.Objective, 1) {
 		return Solution{Status: Infeasible}
 	}
+	// Combine the open-frontier bound with the valid root bound (the frontier is
+	// always >= rootLB, so this only helps the degenerate case where the backstop
+	// fired before any node produced a frontier bound).
+	if lowerBound < rootLB {
+		lowerBound = rootLB
+	}
+	// A lower bound that meets the incumbent proves optimality even when the
+	// search did not formally exhaust the tree.
+	if !proven && !math.IsInf(lowerBound, -1) && lowerBound >= incumbent.Objective-eps {
+		proven = true
+	}
 	incumbent.Proven = proven
 	if proven {
 		incumbent.LowerBound = incumbent.Objective
 	} else if math.IsInf(lowerBound, -1) {
-		incumbent.LowerBound = incumbent.Objective // no better info
+		incumbent.LowerBound = incumbent.Objective // no bound information available
 	} else {
 		incumbent.LowerBound = lowerBound
 	}
@@ -154,9 +182,12 @@ const (
 // pin the most-fractional integer variable up to its ceiling until the LP is
 // integer-feasible or becomes infeasible. Returns a feasible incumbent (usually
 // far stronger than a single round-up) or ok=false if the dive hits infeasibility.
-func diveHeuristic(rp Problem, integer []bool) (Solution, bool) {
+func diveHeuristic(rp Problem, integer []bool, deadline time.Time) (Solution, bool) {
 	var extra []Constraint
 	for i := 0; i < 500; i++ {
+		if !deadline.IsZero() && time.Now().After(deadline) {
+			return Solution{}, false // out of time; caller keeps any prior incumbent
+		}
 		cons := make([]Constraint, 0, len(rp.Constraints)+len(extra))
 		cons = append(cons, rp.Constraints...)
 		cons = append(cons, extra...)

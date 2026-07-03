@@ -20,11 +20,12 @@ func WriteReport(w io.Writer, plan Plan, requirements []Pair, opts Options) {
 	}
 
 	if !plan.Proven {
-		gap := 0.0
-		if plan.TotalMaterial > 0 {
-			gap = float64(plan.TotalMaterial-plan.LowerBound) / float64(plan.TotalMaterial) * 100
+		if plan.LowerBound > 0 && plan.LowerBound < plan.TotalMaterial {
+			gap := float64(plan.TotalMaterial-plan.LowerBound) / float64(plan.TotalMaterial) * 100
+			fmt.Fprintf(w, "⚠ Оптимальность не доказана (лимит времени/узлов); верхняя оценка отклонения от оптимума: %.2f%%\n", gap)
+		} else {
+			fmt.Fprintln(w, "⚠ Оптимальность не доказана (лимит времени/узлов).")
 		}
-		fmt.Fprintf(w, "⚠ Оптимальность не доказана (лимит времени/узлов); верхняя оценка отклонения от оптимума: %.2f%%\n", gap)
 	}
 
 	boardsByStock := map[int]int{}

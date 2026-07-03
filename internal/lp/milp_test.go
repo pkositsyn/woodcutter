@@ -127,7 +127,7 @@ func TestDiveHeuristic(t *testing.T) {
 			{Coeffs: []float64{3, 2}, Type: GreaterEqual, RHS: 7},
 		},
 	}
-	sol, ok := diveHeuristic(p, []bool{true, true})
+	sol, ok := diveHeuristic(p, []bool{true, true}, time.Time{})
 	if !ok {
 		t.Fatalf("dive failed to produce a feasible incumbent")
 	}
