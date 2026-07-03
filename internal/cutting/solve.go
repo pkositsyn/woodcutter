@@ -29,7 +29,7 @@ func Solve(stock, requirements []Pair, opts Options) Plan {
 		stockAgg[s.Length] += s.Count
 	}
 	if len(stockAgg) == 0 {
-		return Plan{Feasible: true, TotalMaterial: 0}
+		return Plan{Feasible: true, TotalMaterial: 0, Proven: true}
 	}
 	stockLen := make([]int, 0, len(stockAgg))
 	for L := range stockAgg {
@@ -56,7 +56,7 @@ func Solve(stock, requirements []Pair, opts Options) Plan {
 	}
 	sort.Slice(valid, func(i, j int) bool { return valid[i].Length > valid[j].Length })
 	if len(valid) == 0 {
-		return Plan{Feasible: true, TotalMaterial: 0, Dropped: dropped}
+		return Plan{Feasible: true, TotalMaterial: 0, Dropped: dropped, Proven: true}
 	}
 
 	nReq := len(valid)
@@ -203,5 +203,12 @@ func Solve(stock, requirements []Pair, opts Options) Plan {
 			boards = append(boards, Board{StockLength: L, Pieces: pieces})
 		}
 	}
-	return Plan{Feasible: true, TotalMaterial: total, Boards: boards, Dropped: dropped}
+	return Plan{
+		Feasible:      true,
+		TotalMaterial: total,
+		Boards:        boards,
+		Dropped:       dropped,
+		Proven:        sol.Proven,
+		LowerBound:    int(math.Round(sol.LowerBound)),
+	}
 }
